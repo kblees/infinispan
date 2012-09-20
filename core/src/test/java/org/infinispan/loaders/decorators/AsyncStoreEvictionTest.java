@@ -22,6 +22,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.infinispan.Cache;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.configuration.cache.StoreConfigurationBuilder;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.eviction.EvictionStrategy;
 import org.infinispan.loaders.CacheLoaderConfig;
@@ -35,6 +36,20 @@ import org.testng.annotations.Test;
 
 @Test(groups = "unit", testName = "loaders.decorators.AsyncTest")
 public class AsyncStoreEvictionTest {
+
+   // set to false to fix all the tests
+   private static final boolean USE_ASYNC_STORE = true;
+
+   private static ConfigurationBuilder config(boolean passivation, int threads) {
+      ConfigurationBuilder config = new ConfigurationBuilder();
+      config.expiration().wakeUpInterval(100);
+      config.eviction().maxEntries(1).strategy(EvictionStrategy.LRU);
+      StoreConfigurationBuilder store = config.loaders().passivation(passivation).addStore().cacheStore(new LockableCacheStore());
+      if (USE_ASYNC_STORE)
+         store.async().enable().threadPoolSize(threads);
+      return config;
+   }
+
    private final static ThreadLocal<LockableCacheStore> STORE = new ThreadLocal<LockableCacheStore>();
 
    public static class LockableCacheStoreConfig extends DummyInMemoryCacheStore.Cfg {
@@ -79,19 +94,13 @@ public class AsyncStoreEvictionTest {
          }
       }
    }
-   private static abstract class OneEntryCacheManagerCallable extends CacheManagerCallable {
+
+   private static abstract class CacheCallable extends CacheManagerCallable {
       protected final Cache<String, String> cache;
       protected final LockableCacheStore store;
 
-      private static ConfigurationBuilder config(boolean passivation, int threads) {
-         ConfigurationBuilder config = new ConfigurationBuilder();
-         config.expiration().wakeUpInterval(100).eviction().strategy(EvictionStrategy.LRU).maxEntries(1).loaders().passivation(passivation).addStore()
-               .cacheStore(new LockableCacheStore()).async().enable().threadPoolSize(threads);
-         return config;
-      }
-
-      OneEntryCacheManagerCallable(boolean passivation, int threads) {
-         super(TestCacheManagerFactory.createCacheManager(config(passivation, threads)));
+      CacheCallable(ConfigurationBuilder builder) {
+         super(TestCacheManagerFactory.createCacheManager(builder));
          cache = cm.getCache();
          store = STORE.get();
       }
@@ -104,7 +113,7 @@ public class AsyncStoreEvictionTest {
       testEndToEndEviction(false);
    }
    private void testEndToEndEviction(boolean passivation) throws Exception {
-      TestingUtil.withCacheManager(new OneEntryCacheManagerCallable(passivation, 1) {
+      TestingUtil.withCacheManager(new CacheCallable(config(passivation, 1)) {
          @Override
          public void call() {
             // simulate slow back end store
@@ -131,7 +140,7 @@ public class AsyncStoreEvictionTest {
       testEndToEndUpdate(false);
    }
    private void testEndToEndUpdate(boolean passivation) throws Exception {
-      TestingUtil.withCacheManager(new OneEntryCacheManagerCallable(passivation, 1) {
+      TestingUtil.withCacheManager(new CacheCallable(config(passivation, 1)) {
          @Override
          public void call() {
             cache.put("k1", "v0");
@@ -165,7 +174,7 @@ public class AsyncStoreEvictionTest {
       testEndToEndRemove(false);
    }
    private void testEndToEndRemove(boolean passivation) throws Exception {
-      TestingUtil.withCacheManager(new OneEntryCacheManagerCallable(passivation, 2) {
+      TestingUtil.withCacheManager(new CacheCallable(config(passivation, 2)) {
          @Override
          public void call() {
             cache.put("k1", "v1");
@@ -191,14 +200,93 @@ public class AsyncStoreEvictionTest {
       });
    }
 
-   public void testEndToEndNPE() throws Exception {
-      TestingUtil.withCacheManager(new OneEntryCacheManagerCallable(false, 1) {
+   public void testNPE() throws Exception {
+      TestingUtil.withCacheManager(new CacheCallable(config(false, 1)) {
          @Override
          public void call() {
             cache.put("k1", "v1");
             cache.remove("k1");
             // this causes NPE in AsyncStore.isLocked(InternalNullEntry.getKey())
             cache.put("k2", "v2");
+         }
+      });
+   }
+
+   public void testLIRS() throws Exception {
+      ConfigurationBuilder config = config(false, 1);
+      config.eviction().strategy(EvictionStrategy.LIRS).maxEntries(1);
+      TestingUtil.withCacheManager(new CacheCallable(config) {
+         @Override
+         public void call() {
+            cache.put("k1", "v1");
+            cache.put("k2", "v2");
+            cache.put("k1", "v3");
+            cache.put("k2", "v4");
+            cache.put("k3", "v3");
+            cache.put("k4", "v4");
+         }
+      });
+   }
+
+   public void testSize() throws Exception {
+      TestingUtil.withCacheManager(new CacheCallable(config(false, 1)) {
+         @Override
+         public void call() {
+            cache.put("k1", "v1");
+            cache.put("k2", "v2");
+
+            assert cache.size() == 1 : "cache size must be 1, was: " + cache.size();
+         }
+      });
+   }
+
+   public void testSizeAfterExpiration() throws Exception {
+      TestingUtil.withCacheManager(new CacheCallable(config(false, 1)) {
+         @Override
+         public void call() {
+            cache.put("k1", "v1");
+            cache.put("k2", "v2");
+            TestingUtil.sleepThread(200);
+
+            assert !(cache.size() == 2) : "expiry doesn't work even after expiration";
+         }
+      });
+   }
+
+   public void testSizeAfterEvict() throws Exception {
+      TestingUtil.withCacheManager(new CacheCallable(config(false, 1)) {
+         @Override
+         public void call() {
+            cache.put("k1", "v1");
+            cache.evict("k1");
+
+            assert cache.size() == 0 : "cache size must be 0, was: " + cache.size();
+         }
+      });
+   }
+
+   public void testSizeAfterRemove() throws Exception {
+      TestingUtil.withCacheManager(new CacheCallable(config(false, 1)) {
+         @Override
+         public void call() {
+            cache.put("k1", "v1");
+            cache.remove("k1");
+
+            assert cache.size() == 0 : "cache size must be 0, was: " + cache.size();
+         }
+      });
+   }
+
+   public void testSizeAfterRemoveAndExpiration() throws Exception {
+      TestingUtil.withCacheManager(new CacheCallable(config(false, 1)) {
+         @Override
+         public void call() {
+            cache.put("k1", "v1");
+            cache.remove("k1");
+            int size = cache.size();
+            TestingUtil.sleepThread(200);
+
+            assert !(size == 1 && cache.size() == 0) : "remove only works after expiration";
          }
       });
    }
