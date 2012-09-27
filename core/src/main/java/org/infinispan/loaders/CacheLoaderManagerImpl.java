@@ -60,6 +60,7 @@ import org.infinispan.factories.annotations.Stop;
 import org.infinispan.interceptors.CacheLoaderInterceptor;
 import org.infinispan.interceptors.CacheStoreInterceptor;
 import org.infinispan.loaders.decorators.AsyncStore;
+import org.infinispan.loaders.decorators.AsyncStore2;
 import org.infinispan.loaders.decorators.ChainingCacheStore;
 import org.infinispan.loaders.decorators.ReadOnlyStore;
 import org.infinispan.loaders.decorators.SingletonStore;
@@ -374,8 +375,12 @@ public class CacheLoaderManagerImpl implements CacheLoaderManager {
       return tmpLoader;
    }
 
-   protected AsyncStore createAsyncStore(CacheStore tmpStore, CacheStoreConfig cfg2) {
-      return new AsyncStore(tmpStore, cfg2.getAsyncStoreConfig());
+//   protected AsyncStore createAsyncStore(CacheStore tmpStore, CacheStoreConfig cfg2) {
+//      return new AsyncStore(tmpStore, cfg2.getAsyncStoreConfig());
+//   }
+
+   protected AsyncStore2 createAsyncStore(CacheStore tmpStore, CacheStoreConfig cfg2) {
+      return new AsyncStore2(tmpStore, cfg2.getAsyncStoreConfig());
    }
 
    void assertNotSingletonAndShared(StoreConfiguration cfg) {

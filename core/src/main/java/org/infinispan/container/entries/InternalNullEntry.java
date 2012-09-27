@@ -22,6 +22,7 @@ package org.infinispan.container.entries;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.versioning.EntryVersion;
 import org.infinispan.loaders.decorators.AsyncStore;
+import org.infinispan.loaders.decorators.AsyncStore2;
 
 /**
  * Internal null cache entry used to signal that an entry has been removed
@@ -36,12 +37,15 @@ import org.infinispan.loaders.decorators.AsyncStore;
  */
 public class InternalNullEntry implements InternalCacheEntry {
 
-   private final long asyncProcessorId;
-   private final AsyncStore asyncStore;
+//   private final long asyncProcessorId;
+//   private final AsyncStore asyncStore;
+//
+//   public InternalNullEntry(AsyncStore asyncStore) {
+   private final AsyncStore2 asyncStore;
 
-   public InternalNullEntry(AsyncStore asyncStore) {
+   public InternalNullEntry(AsyncStore2 asyncStore) {
       this.asyncStore = asyncStore;
-      this.asyncProcessorId = this.asyncStore.getAsyncProcessorId();
+//      this.asyncProcessorId = this.asyncStore.getAsyncProcessorId();
    }
 
    @Override
@@ -61,12 +65,14 @@ public class InternalNullEntry implements InternalCacheEntry {
 
    @Override
    public boolean isExpired(long now) {
-      return asyncStore.getAsyncProcessorId() > asyncProcessorId;
+//      return asyncStore.getAsyncProcessorId() > asyncProcessorId;
+      return false;
    }
 
    @Override
    public boolean isExpired() {
-      return asyncStore.getAsyncProcessorId() > asyncProcessorId;
+//      return asyncStore.getAsyncProcessorId() > asyncProcessorId;
+      return false;
    }
 
    // Below are non-relevant method implementations

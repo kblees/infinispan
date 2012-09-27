@@ -174,9 +174,9 @@ public class CacheLoaderInterceptor extends JmxStatsCommandInterceptor {
          } else {
             return false;
          }
-      } else if (e instanceof InternalNullEntry) {
-         ctx.putLookedUpEntry(key, null);
-         return false;
+//      } else if (e instanceof InternalNullEntry) {
+//         ctx.putLookedUpEntry(key, null);
+//         return false;
       } else {
          return true;
       }

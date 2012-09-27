@@ -295,18 +295,19 @@ public class BoundedConcurrentHashMap<K, V> extends AbstractMap<K, V>
 
       void onEntryEviction(Map<K, V> evicted);
 
-      /**
-       * Callback when an entry has been selected for eviction.
-       * Implementations can use this method to make a decision on whether the
-       * evicted entry should really be evicted, and they can use the return
-       * of this method to signal that.
-       *
-       * @param internalCacheEntry
-       * @return true if the eviction should go through, false if the
-       * eviction process should halt.
-       */
-      boolean onEntryChosenForEviction(V internalCacheEntry);
+//      /**
+//       * Callback when an entry has been selected for eviction.
+//       * Implementations can use this method to make a decision on whether the
+//       * evicted entry should really be evicted, and they can use the return
+//       * of this method to signal that.
+//       *
+//       * @param internalCacheEntry
+//       * @return true if the eviction should go through, false if the
+//       * eviction process should halt.
+//       */
+//      boolean onEntryChosenForEviction(V internalCacheEntry);
 
+      void onEntryChosenForEviction(V internalCacheEntry);
    }
 
    static final class NullEvictionListener<K, V> implements EvictionListener<K, V> {
@@ -314,10 +315,14 @@ public class BoundedConcurrentHashMap<K, V> extends AbstractMap<K, V>
       public void onEntryEviction(Map<K, V> evicted) {
          // Do nothing.
       }
+//      @Override
+//      public boolean onEntryChosenForEviction(V internalCacheEntry) {
+//         // Do nothing.
+//         return false;
+//      }
       @Override
-      public boolean onEntryChosenForEviction(V internalCacheEntry) {
+      public void onEntryChosenForEviction(V internalCacheEntry) {
          // Do nothing.
-         return false;
       }
    }
 
@@ -530,11 +535,12 @@ public class BoundedConcurrentHashMap<K, V> extends AbstractMap<K, V>
          boolean aboveThreshold = isAboveThreshold();
          if(aboveThreshold){
             HashEntry<K, V> evictedEntry = eldest.getKey();
-            boolean evict = segment.evictionListener.onEntryChosenForEviction(evictedEntry.value);
-            if (evict) {
-               segment.remove(evictedEntry.key, evictedEntry.hash, null);
-               evicted.add(evictedEntry);
-            }
+//            boolean evict = segment.evictionListener.onEntryChosenForEviction(evictedEntry.value);
+//            if (evict) {
+            segment.evictionListener.onEntryChosenForEviction(evictedEntry.value);
+            segment.remove(evictedEntry.key, evictedEntry.hash, null);
+            evicted.add(evictedEntry);
+//            }
          }
          return aboveThreshold;
       }
@@ -608,11 +614,12 @@ public class BoundedConcurrentHashMap<K, V> extends AbstractMap<K, V>
             LRUHashEntry<K, V> evictedEntry = head.nextEntry;
             //remove eldest entry from doubly-linked list
             head.nextEntry.remove();
-            boolean evict = segment.evictionListener.onEntryChosenForEviction(evictedEntry.value);
-            if (evict) {
-               segment.remove(evictedEntry.key, evictedEntry.hash, null);
-               evicted.add(evictedEntry);
-            }
+//            boolean evict =
+            segment.evictionListener.onEntryChosenForEviction(evictedEntry.value);
+//            if (evict) {
+            segment.remove(evictedEntry.key, evictedEntry.hash, null);
+            evicted.add(evictedEntry);
+//            }
          }
       }
 
@@ -1231,9 +1238,10 @@ public class BoundedConcurrentHashMap<K, V> extends AbstractMap<K, V>
       private void removeFromSegment(Set<HashEntry<K, V>> evicted) {
          for (HashEntry<K, V> e : evicted) {
             ((LIRSHashEntry<K, V>)e).evict();
-            boolean evict = segment.evictionListener.onEntryChosenForEviction(e.value);
-            if (evict)
-               segment.remove(e.key, e.hash, null);
+//            boolean evict =
+            segment.evictionListener.onEntryChosenForEviction(e.value);
+//            if (evict)
+            segment.remove(e.key, e.hash, null);
          }
       }
 

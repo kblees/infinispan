@@ -28,6 +28,7 @@ import org.infinispan.loaders.*;
 import org.infinispan.marshall.StreamingMarshaller;
 import org.infinispan.marshall.TestObjectStreamMarshaller;
 import org.infinispan.test.TestingUtil;
+import org.infinispan.util.InfinispanCollections;
 import org.infinispan.util.Util;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -291,6 +292,57 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
       throw new RuntimeException(String.format(
             "Timed out waiting (%d ms) for cache store to contain key=%s with value=%s",
             timeout, key, expectedValue));
+   }
+
+   public void blockUntilCacheStoreContains(Set<Map.Entry<Object, InternalCacheEntry>> expectedState, long timeout) {
+      long killTime = System.currentTimeMillis() + timeout;
+      // Set<? extends Map.Entry<?, InternalCacheEntry>> expectedEntries = expectedState.entrySet();
+      Set<Map.Entry<Object, InternalCacheEntry>> notStored = null;
+      Set<Map.Entry<Object, InternalCacheEntry>> notRemoved = null;
+      while (System.currentTimeMillis() < killTime) {
+         Set<Map.Entry<Object, InternalCacheEntry>> storeEntries = store.entrySet();
+         // Find out which entries might not have been removed from the store
+         notRemoved = InfinispanCollections.difference(storeEntries, expectedState);
+         // Find out which entries might not have been stored
+         notStored = InfinispanCollections.difference(expectedState, storeEntries);
+         if (!notStored.isEmpty() || !notRemoved.isEmpty()) {
+            TestingUtil.sleepThread(5000);
+         } else if (notStored.isEmpty() && notRemoved.isEmpty()) {
+            break;
+         }
+      }
+
+      if ((notStored != null && !notStored.isEmpty()) || (notRemoved != null && !notRemoved.isEmpty())) {
+         if (log.isTraceEnabled()) {
+            log.tracef("Entries still not stored: %s", notStored);
+            log.tracef("Entries still not removed: %s", notRemoved);
+         }
+         throw new RuntimeException(String.format(
+               "Timed out waiting (%d ms) for cache store to be flushed. entries-not-stored=[%s], entries-not-removed=[%s]",
+               timeout, notStored, notRemoved));
+      }
+
+
+//      if (missingEntries != null && !missingEntries.isEmpty())
+//         throw new RuntimeException(String.format(
+//            "Timed out waiting (%d ms) for cache store to contain entry %s",
+//            timeout, missingEntries));
+//
+//      long killTime = System.currentTimeMillis() + timeout;
+//      Map.Entry<?, ?> missingEntry = null;
+//      while (System.currentTimeMillis() < killTime) {
+//         for (Map.Entry<?, ?> stateEntry : expectedState.entrySet()) {
+//            InternalCacheEntry entry = store.get(stateEntry.getKey());
+//            if (entry == null || !entry.getValue().equals(stateEntry.getValue())) {
+//               missingEntry = entry;
+//               TestingUtil.sleepThread(50);
+//            }
+//         }
+//      }
+//      if (missingEntry != null)
+//         throw new RuntimeException(String.format(
+//            "Timed out waiting (%d ms) for cache store to contain entry %s",
+//            timeout, missingEntry));
    }
 
    public static class Cfg extends AbstractCacheStoreConfig {

@@ -35,6 +35,7 @@ import org.infinispan.loaders.CacheStoreConfig;
 import org.infinispan.loaders.dummy.DummyInMemoryCacheStore;
 import org.infinispan.loaders.dummy.DummyInMemoryCacheStoreConfigurationBuilder;
 import org.infinispan.loaders.modifications.Modification;
+import org.infinispan.loaders.modifications.Remove;
 import org.infinispan.loaders.modifications.Store;
 import org.infinispan.test.CacheManagerCallable;
 import org.infinispan.test.TestingUtil;
@@ -44,6 +45,7 @@ import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.Test;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -81,7 +83,8 @@ public class AsyncStoreFunctionalTest {
 
             Cache<Integer, String> cache = cm.getCache();
 
-            MockAsyncStore cacheStore = getMockAsyncStore(cache);
+//            MockAsyncStore cacheStore = getMockAsyncStore(cache);
+            MockAsyncStore2 cacheStore = getMockAsyncStore(cache);
             CountDownLatch modApplyLatch = cacheStore.modApplyLatch;
             CountDownLatch lockedWaitLatch = cacheStore.lockedWaitLatch;
 
@@ -126,7 +129,8 @@ public class AsyncStoreFunctionalTest {
 
             Cache<Integer, String> cache = cm.getCache();
 
-            MockAsyncStore cacheStore = getMockAsyncStore(cache);
+//            MockAsyncStore cacheStore = getMockAsyncStore(cache);
+            MockAsyncStore2 cacheStore = getMockAsyncStore(cache);
             CountDownLatch modApplyLatch = cacheStore.modApplyLatch;
             CountDownLatch lockedWaitLatch = cacheStore.lockedWaitLatch;
 
@@ -174,7 +178,8 @@ public class AsyncStoreFunctionalTest {
 
             Cache<Integer, String> cache = cm.getCache();
 
-            MockAsyncStore cacheStore = getMockAsyncStore(cache);
+//            MockAsyncStore cacheStore = getMockAsyncStore(cache);
+            MockAsyncStore2 cacheStore = getMockAsyncStore(cache);
             CountDownLatch modApplyLatch = cacheStore.modApplyLatch;
             CountDownLatch lockedWaitLatch = cacheStore.lockedWaitLatch;
 
@@ -217,10 +222,17 @@ public class AsyncStoreFunctionalTest {
       });
    }
 
-   private MockAsyncStore getMockAsyncStore(Cache<Integer, String> cache) {
+//   private MockAsyncStore getMockAsyncStore(Cache<Integer, String> cache) {
+//      CustomCacheLoaderManager cacheLoaderManager = (CustomCacheLoaderManager)
+//            TestingUtil.extractComponent(cache, CacheLoaderManager.class);
+//      return (MockAsyncStore)
+//            cacheLoaderManager.getCacheStore();
+//   }
+
+   private MockAsyncStore2 getMockAsyncStore(Cache<Integer, String> cache) {
       CustomCacheLoaderManager cacheLoaderManager = (CustomCacheLoaderManager)
             TestingUtil.extractComponent(cache, CacheLoaderManager.class);
-      return (MockAsyncStore)
+      return (MockAsyncStore2)
             cacheLoaderManager.getCacheStore();
    }
 
@@ -234,14 +246,55 @@ public class AsyncStoreFunctionalTest {
       return builder;
    }
 
-   public static class MockAsyncStore extends AsyncStore {
+//   public static class MockAsyncStore extends AsyncStore {
+//
+//      private static final Log log = LogFactory.getLog(MockAsyncStore.class);
+//
+//      private final CountDownLatch modApplyLatch;
+//      private final CountDownLatch lockedWaitLatch;
+//
+//      public MockAsyncStore(CountDownLatch modApplyLatch, CountDownLatch lockedWaitLatch,
+//            CacheStore delegate, AsyncStoreConfig asyncStoreConfig) {
+//         super(delegate, asyncStoreConfig);
+//         this.modApplyLatch = modApplyLatch;
+//         this.lockedWaitLatch = lockedWaitLatch;
+//      }
+//
+//      @Override
+//      protected void applyModificationsSync(ConcurrentMap<Object, Modification> mods)
+//            throws CacheLoaderException {
+//         try {
+//            // Wait for signal to do the modification
+//            if (mods.containsKey(1) && !isSkip(mods.get(1))) {
+//               log.tracef("Wait to apply modifications: %s", mods);
+//               lockedWaitLatch.countDown();
+//               modApplyLatch.await(60, TimeUnit.SECONDS);
+//               log.tracef("Apply modifications: %s", mods);
+//            }
+//            super.applyModificationsSync(mods);
+//         } catch (InterruptedException e) {
+//            Thread.currentThread().interrupt();
+//         }
+//      }
+//
+//      private boolean isSkip(Modification mod) {
+//         if (mod instanceof Store) {
+//            InternalCacheEntry storedEntry = ((Store) mod).getStoredEntry();
+//            return storedEntry.getValue().equals("skip");
+//         }
+//         return false;
+//      }
+//
+//   }
 
-      private static final Log log = LogFactory.getLog(MockAsyncStore.class);
+   public static class MockAsyncStore2 extends AsyncStore2 {
+
+      private static final Log log = LogFactory.getLog(MockAsyncStore2.class);
 
       private final CountDownLatch modApplyLatch;
       private final CountDownLatch lockedWaitLatch;
 
-      public MockAsyncStore(CountDownLatch modApplyLatch, CountDownLatch lockedWaitLatch,
+      public MockAsyncStore2(CountDownLatch modApplyLatch, CountDownLatch lockedWaitLatch,
             CacheStore delegate, AsyncStoreConfig asyncStoreConfig) {
          super(delegate, asyncStoreConfig);
          this.modApplyLatch = modApplyLatch;
@@ -249,11 +302,11 @@ public class AsyncStoreFunctionalTest {
       }
 
       @Override
-      protected void applyModificationsSync(ConcurrentMap<Object, Modification> mods)
+      protected void applyModificationsSync(List<Modification> mods)
             throws CacheLoaderException {
          try {
             // Wait for signal to do the modification
-            if (mods.containsKey(1) && !isSkip(mods.get(1))) {
+            if (containsModificationForKey(1, mods) && !isSkip(findModificationForKey(1, mods))) {
                log.tracef("Wait to apply modifications: %s", mods);
                lockedWaitLatch.countDown();
                modApplyLatch.await(60, TimeUnit.SECONDS);
@@ -263,6 +316,30 @@ public class AsyncStoreFunctionalTest {
          } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
          }
+      }
+
+      private boolean containsModificationForKey(Object key, List<Modification> mods) {
+         return findModificationForKey(key, mods) == null ? false : true;
+      }
+
+      private Modification findModificationForKey(Object key, List<Modification> mods) {
+         for (Modification modification : mods) {
+            switch (modification.getType()) {
+               case STORE:
+                  Store store = (Store) modification;
+                  if (store.getStoredEntry().getKey().equals(key))
+                     return store;
+                  break;
+               case REMOVE:
+                  Remove remove = (Remove) modification;
+                  if (remove.getKey().equals(key))
+                     return remove;
+                  break;
+               default:
+                  return null;
+            }
+         }
+         return null;
       }
 
       private boolean isSkip(Modification mod) {
@@ -285,13 +362,25 @@ public class AsyncStoreFunctionalTest {
 
    }
 
+//   public static class CustomCacheLoaderManager extends CacheLoaderManagerImpl {
+//
+//      @Override
+//      protected AsyncStore createAsyncStore(CacheStore tmpStore, CacheStoreConfig cfg2) {
+//         CountDownLatch modApplyLatch = new CountDownLatch(1);
+//         CountDownLatch lockedWaitLatch = new CountDownLatch(1);
+//         return new MockAsyncStore(modApplyLatch, lockedWaitLatch,
+//               tmpStore, cfg2.getAsyncStoreConfig());
+//      }
+//
+//   }
+
    public static class CustomCacheLoaderManager extends CacheLoaderManagerImpl {
 
       @Override
-      protected AsyncStore createAsyncStore(CacheStore tmpStore, CacheStoreConfig cfg2) {
+      protected AsyncStore2 createAsyncStore(CacheStore tmpStore, CacheStoreConfig cfg2) {
          CountDownLatch modApplyLatch = new CountDownLatch(1);
          CountDownLatch lockedWaitLatch = new CountDownLatch(1);
-         return new MockAsyncStore(modApplyLatch, lockedWaitLatch,
+         return new MockAsyncStore2(modApplyLatch, lockedWaitLatch,
                tmpStore, cfg2.getAsyncStoreConfig());
       }
 
