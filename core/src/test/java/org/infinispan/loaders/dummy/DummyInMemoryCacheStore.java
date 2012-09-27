@@ -44,6 +44,7 @@ import java.util.concurrent.ConcurrentMap;
 public class DummyInMemoryCacheStore extends AbstractCacheStore {
    private static final Log log = LogFactory.getLog(DummyInMemoryCacheStore.class);
    private static final boolean trace = log.isTraceEnabled();
+   private static final boolean debug = log.isDebugEnabled();
    static final ConcurrentMap<String, Map<Object, InternalCacheEntry>> stores = new ConcurrentHashMap<String, Map<Object, InternalCacheEntry>>();
    static final ConcurrentMap<String, ConcurrentMap<String, Integer>> storeStats =
          new ConcurrentHashMap<String, ConcurrentMap<String, Integer>>();
@@ -80,7 +81,7 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
    public void store(InternalCacheEntry ed) {
       record("store");
       if (ed != null) {
-         if (trace) log.tracef("Store %s in dummy map store@%s", ed, Util.hexIdHashCode(store));
+         if (debug) log.debugf("Store %s in dummy map store@%s", ed, Util.hexIdHashCode(store));
          config.failIfNeeded(ed.getKey());
          store.put(ed.getKey(), ed);
       }
@@ -124,11 +125,11 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
    public boolean remove(Object key) {
       record("remove");
       if (store.remove(key) != null) {
-         if (trace) log.tracef("Removed %s from dummy store", key);
+         if (debug) log.debugf("Removed %s from dummy store", key);
          return true;
       }
 
-      if (trace) log.tracef("Key %s not present in store, so don't remove", key);
+      if (debug) log.debugf("Key %s not present in store, so don't remove", key);
       return false;
    }
 

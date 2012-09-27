@@ -87,6 +87,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class AsyncStore extends AbstractDelegatingStore {
    private static final Log log = LogFactory.getLog(AsyncStore.class);
    private static final boolean trace = log.isTraceEnabled();
+   private static final boolean debug = log.isDebugEnabled();
    private static final AtomicInteger threadId = new AtomicInteger(0);
    private final AtomicBoolean stopped = new AtomicBoolean(true);
    
@@ -293,7 +294,7 @@ public class AsyncStore extends AbstractDelegatingStore {
    private void enqueue(Modification mod) {
       try {
          checkNotStopped();
-         if (trace) log.tracef("Enqueuing modification %s", mod);
+         if (debug) log.debugf("Enqueuing modification %s", mod);
          changesDeque.put(mod);
       } catch (Exception e) {
          throw new CacheException("Unable to enqueue asynchronous task", e);
@@ -406,8 +407,8 @@ public class AsyncStore extends AbstractDelegatingStore {
                   executor.shutdown();
                }
             } else {
-               if (trace)
-                  log.tracef("Apply %s modifications", swap.size());
+               if (debug)
+                  log.debugf("Apply %s modifications", swap.size());
                int maxRetries = 3;
                int attemptNumber = 0;
                boolean successful;

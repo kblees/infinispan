@@ -35,6 +35,8 @@ import org.infinispan.loaders.decorators.AsyncStoreConfig;
 import org.infinispan.loaders.dummy.DummyInMemoryCacheStore;
 import org.infinispan.marshall.TestObjectStreamMarshaller;
 import org.infinispan.test.TestingUtil;
+import org.infinispan.util.concurrent.locks.containers.LockContainer;
+import org.infinispan.util.concurrent.locks.containers.ReentrantPerEntryLockContainer;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.DataProvider;
@@ -47,9 +49,12 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
 
 import static java.lang.Math.log;
 import static java.lang.Math.sqrt;
@@ -57,6 +62,7 @@ import static java.lang.Math.toRadians;
 
 /**
  * // TODO: Document this
+ * // TODO: Add a test to verify clear() too!
  *
  * @author Galder Zamarreño
  * @since // TODO
@@ -65,11 +71,13 @@ import static java.lang.Math.toRadians;
 public class AsyncStoreStressTest {
 
    static final Log log = LogFactory.getLog(AsyncStoreStressTest.class);
+   static final boolean trace = log.isTraceEnabled();
+   static final boolean debug = log.isDebugEnabled();
 
    static final int CAPACITY = Integer.getInteger("size", 100000);
 //   static final int CAPACITY = Integer.getInteger("size", 1000);
    static final int LOOP_FACTOR = 10;
-   static final long RUNNING_TIME = Integer.getInteger("time", 1) * 360 * 1000;
+   static final long RUNNING_TIME = Integer.getInteger("time", 1) * 60 * 1000;
 //   static final long RUNNING_TIME = Integer.getInteger("time", 1) * 30 * 1000;
    static final Random RANDOM = new Random(12345);
 
@@ -77,6 +85,16 @@ public class AsyncStoreStressTest {
    private List<String> keys = new ArrayList<String>();
    private InternalEntryFactory entryFactory = new InternalEntryFactoryImpl();
    private Map<Object, InternalCacheEntry> expectedState = new ConcurrentHashMap<Object, InternalCacheEntry>();
+
+   // Lock container that mimics per-key locking produced by the cache.
+   // This per-key lock holder provides guarantees that the final expected
+   // state has not been affected by ordering issues such as this:
+   //
+   // (Thread-200:) Enqueuing modification Store{storedEntry=ImmortalCacheEntry{key=key165168, value=ImmortalCacheValue {value=60483}}}
+   // (Thread-194:) Enqueuing modification Store{storedEntry=ImmortalCacheEntry{key=key165168, value=ImmortalCacheValue {value=61456}}}
+   // (Thread-194:) Expected state updated with key=key165168, value=61456
+   // (Thread-200:) Expected state updated with key=key165168, value=60483
+   private LockContainer locks = new ReentrantPerEntryLockContainer(32);
 
    private Map<String, AbstractDelegatingStore> createAsyncStores() throws CacheLoaderException {
       Map<String, AbstractDelegatingStore> stores = new TreeMap<String, AbstractDelegatingStore>();
@@ -112,7 +130,7 @@ public class AsyncStoreStressTest {
    public Object[][] independentReadWriteRemoveParams() {
       return new Object[][]{
             new Object[]{CAPACITY, 3 * CAPACITY, 90, 9, 1},
-//            new Object[]{CAPACITY, 3 * CAPACITY, 9, 1, 0},
+            new Object[]{CAPACITY, 3 * CAPACITY, 9, 1, 0},
       };
    }
 
@@ -233,20 +251,22 @@ public class AsyncStoreStressTest {
    private Operation<String, Integer> writeOperation(AbstractDelegatingStore store) {
       return new Operation<String, Integer>(store, "PUT") {
          @Override
-         public boolean call(String key, long run) {
-            int value = (int) run;
-            InternalCacheEntry entry = entryFactory.create(key, value, (EntryVersion) null);
-            try {
-               store.store(entry);
-               expectedState.put(key, entry);
-               if (log.isTraceEnabled())
-                  log.tracef("Expected state updated with key=%s, value=%s", key, value);
-
-               return true;
-            } catch (CacheLoaderException e) {
-               e.printStackTrace();
-               return false;
-            }
+         public boolean call(final String key, long run) {
+            final int value = (int) run;
+            final InternalCacheEntry entry =
+                  entryFactory.create(key, value, (EntryVersion) null);
+            // Store acquiring locks and catching exceptions
+            boolean result = withStore(key, new Callable<Boolean>() {
+               @Override
+               public Boolean call() throws Exception {
+                  store.store(entry);
+                  expectedState.put(key, entry);
+                  if (debug)
+                     log.debugf("Expected state updated with key=%s, value=%s", key, value);
+                  return true;
+               }
+            });
+            return result;
          }
       };
    }
@@ -254,22 +274,46 @@ public class AsyncStoreStressTest {
    private Operation<String, Integer> removeOperation(AbstractDelegatingStore store) {
       return new Operation<String, Integer>(store, "REMOVE") {
          @Override
-         public boolean call(String key, long run) {
-            try {
-               boolean removed = store.remove(key);
-               if (removed) {
-                  expectedState.remove(key);
-                  if (log.isTraceEnabled())
-                     log.tracef("Expected state removed key=%s", key);
+         public boolean call(final String key, long run) {
+            // Remove acquiring locks and catching exceptions
+            boolean result = withStore(key, new Callable<Boolean>() {
+               @Override
+               public Boolean call() throws Exception {
+                  boolean removed = store.remove(key);
+                  if (removed) {
+                     expectedState.remove(key);
+                     if (trace)
+                        log.debugf("Expected state removed key=%s", key);
+                  }
+                  return true;
                }
-
-               return removed;
-            } catch (CacheLoaderException e) {
-               e.printStackTrace();
-               return false;
-            }
+            });
+            return result;
          }
       };
+   }
+   
+   private boolean withStore(String key, Callable<Boolean> call) {
+      Lock lock = null;
+      boolean result = false;
+      try {
+         lock = locks.acquireLock(Thread.currentThread(), key, 30, TimeUnit.SECONDS);
+         if (lock != null) {
+            result = call.call().booleanValue();
+         }
+      } catch (CacheLoaderException e) {
+         e.printStackTrace();
+         result = false;
+      } catch (InterruptedException e) {
+         e.printStackTrace();
+         result = false;
+      } finally {
+         if (lock == null) return false;
+         else {
+            lock.unlock();
+            return result;
+         }
+      }
    }
 
    private double computeStdDev(AbstractDelegatingStore store, int numKeys) throws CacheLoaderException {
