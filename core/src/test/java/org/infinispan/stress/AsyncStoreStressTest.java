@@ -155,11 +155,11 @@ public class AsyncStoreStressTest {
    private void mapTestReadWriteRemove(String name, AbstractDelegatingStore store, int numKeys, int readerThreads, int writerThreads, int removerThreads) throws Exception {
       // warm up for 1 second
       System.out.printf("[store=%s] Warming up\n", name);
-      runMapTestReadWriteRemove(store, readerThreads, writerThreads, removerThreads, 1000);
+      runMapTestReadWriteRemove(name, store, readerThreads, writerThreads, removerThreads, 1000);
 
       // real test
       System.out.printf("[store=%s] Testing...\n", name);
-      TotalStats perf = runMapTestReadWriteRemove(store, readerThreads, writerThreads, removerThreads, RUNNING_TIME);
+      TotalStats perf = runMapTestReadWriteRemove(name, store, readerThreads, writerThreads, removerThreads, RUNNING_TIME);
 
       // Wait until the cache store contains the expected state
       System.out.printf("[store=%s] Verify contents\n", name);
@@ -178,24 +178,24 @@ public class AsyncStoreStressTest {
       System.out.printf("StdDev %10.2f\n", stdDev);
    }
 
-   private TotalStats runMapTestReadWriteRemove(final AbstractDelegatingStore store, int numReaders, int numWriters,
+   private TotalStats runMapTestReadWriteRemove(String name, final AbstractDelegatingStore store, int numReaders, int numWriters,
          int numRemovers, final long runningTimeout) throws Exception {
       latch = new CountDownLatch(1);
       final TotalStats perf = new TotalStats();
       List<Thread> threads = new LinkedList<Thread>();
 
       for (int i = 0; i < numReaders; i++) {
-         Thread reader = new WorkerThread(runningTimeout, perf, readOperation(store));
+         Thread reader = new WorkerThread("worker-" + name + "-get-" + i, runningTimeout, perf, readOperation(store));
          threads.add(reader);
       }
 
       for (int i = 0; i < numWriters; i++) {
-         Thread writer = new WorkerThread(runningTimeout, perf, writeOperation(store));
+         Thread writer = new WorkerThread("worker-" + name + "-put-" + i, runningTimeout, perf, writeOperation(store));
          threads.add(writer);
       }
 
       for (int i = 0; i < numRemovers; i++) {
-         Thread remover = new WorkerThread(runningTimeout, perf, removeOperation(store));
+         Thread remover = new WorkerThread("worker-" + name + "-remove-" + i, runningTimeout, perf, removeOperation(store));
          threads.add(remover);
       }
 
@@ -334,7 +334,8 @@ public class AsyncStoreStressTest {
       private final TotalStats perf;
       private Operation<String, Integer> op;
 
-      public WorkerThread(long runningTimeout, TotalStats perf, Operation<String, Integer> op) {
+      public WorkerThread(String name, long runningTimeout, TotalStats perf, Operation<String, Integer> op) {
+         super(name);
          this.runningTimeout = runningTimeout;
          this.perf = perf;
          this.op = op;
@@ -452,4 +453,10 @@ public class AsyncStoreStressTest {
       }
    }
 
+   public static void main(String[] args) throws Exception {
+      AsyncStoreStressTest test = new AsyncStoreStressTest();
+      test.testReadWriteRemove(100000, 300000, 90, 9, 1);
+      test.testReadWriteRemove(10000, 30000, 9, 1, 0);
+      System.exit(0);
+   }
 }
