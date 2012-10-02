@@ -176,6 +176,10 @@ public class AsyncStoreStressTest {
       System.out.printf("Size %10d  ", store.loadAllKeys(null).size());
       double stdDev = computeStdDev(store, numKeys);
       System.out.printf("StdDev %10.2f\n", stdDev);
+
+      // clean up
+      expectedState.clear();
+      store.clear();
    }
 
    private TotalStats runMapTestReadWriteRemove(String name, final AbstractDelegatingStore store, int numReaders, int numWriters,
