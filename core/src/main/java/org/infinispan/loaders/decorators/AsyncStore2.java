@@ -533,7 +533,7 @@ public class AsyncStore2 extends AbstractDelegatingStore {
        */
       BufferLock(int size) {
          sync = new Sync();
-         counter = new Counter(size);
+         counter = size > 0 ? new Counter(size) : null;
          available = new Available();
       }
 
@@ -545,7 +545,8 @@ public class AsyncStore2 extends AbstractDelegatingStore {
        *           number of items the caller intends to write
        */
       void writeLock(int count) {
-         counter.acquireShared(count);
+         if (counter != null)
+            counter.acquireShared(count);
          sync.acquireShared(1);
       }
 
@@ -580,7 +581,8 @@ public class AsyncStore2 extends AbstractDelegatingStore {
        *           number of available items in the buffer
        */
       void reset(int count) {
-         counter.releaseShared(count);
+         if (counter != null)
+            counter.releaseShared(count);
          available.releaseShared(count);
       }
 
@@ -591,8 +593,9 @@ public class AsyncStore2 extends AbstractDelegatingStore {
        *           number of items to add to the buffer counter
        */
       void add(int count) {
-         int newCount = counter.add(count);
-         available.releaseShared(newCount);
+         if (counter != null)
+            count = counter.add(count);
+         available.releaseShared(count);
       }
    }
 
@@ -602,10 +605,6 @@ public class AsyncStore2 extends AbstractDelegatingStore {
       public void run() {
          LogFactory.pushNDC(cacheName, trace);
          try {
-            // calculate batch size as 'ceil(modificationQueueSize / threadPoolSize)'
-            final int batchSize = ((asyncStoreConfig.getModificationQueueSize() - 1) /
-                                         asyncStoreConfig.getThreadPoolSize()) + 1;
-
             for (;;) {
 
                State s, head, tail;
@@ -613,6 +612,7 @@ public class AsyncStore2 extends AbstractDelegatingStore {
                try {
                   s = state;
                   tail = s.next;
+                  assert tail == null || tail.next == null : "State chain longer than 3 entries!";
                   state = head = newState(false, s);
                } finally {
                   stateLock.reset(0);
@@ -644,14 +644,20 @@ public class AsyncStore2 extends AbstractDelegatingStore {
                      mods = new ArrayList<Modification>(s.modifications.values());
                   }
 
-                  // calculate number of batches / threads = ceil(mod.size / batchSize)
-                  int batches = (mods.size() + batchSize - 1) / batchSize;
-                  s.workerThreads = new CountDownLatch(batches);
-                  // schedule background threads
-                  for (int i = 0; i < batches; i++) {
-                     int min = i * batchSize;
-                     int max = Math.min(min + batchSize, mods.size());
-                     executor.execute(new AsyncStoreProcessor(mods.subList(min, max), s));
+                  // distribute modifications evenly across worker threads
+                  int threads = Math.min(mods.size(), asyncStoreConfig.getThreadPoolSize());
+                  s.workerThreads = new CountDownLatch(threads);
+                  if (threads > 0) {
+                     // schedule background threads
+                     int start = 0;
+                     int quotient = mods.size() / threads;
+                     int remainder = mods.size() % threads;
+                     for (int i = 0; i < threads; i++) {
+                        int end = start + quotient + (i < remainder ? 1 : 0);
+                        executor.execute(new AsyncStoreProcessor(mods.subList(start, end), s));
+                        start = end;
+                     }
+                     assert start == mods.size() : "Thread distribution is broken!";
                   }
 
                   // wait until background threads of previous round are done

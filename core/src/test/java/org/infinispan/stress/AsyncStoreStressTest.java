@@ -113,7 +113,9 @@ public class AsyncStoreStressTest {
 
    private AsyncStore2 createAsyncStore2() throws CacheLoaderException {
       DummyInMemoryCacheStore backendStore = createBackendStore("async2");
-      AsyncStore2 store = new AsyncStore2(backendStore, new AsyncStoreConfig());
+      AsyncStoreConfig asyncCfg = new AsyncStoreConfig();
+      asyncCfg.modificationQueueSize(0);
+      AsyncStore2 store = new AsyncStore2(backendStore, asyncCfg);
       store.init(backendStore.getCacheStoreConfig(), null, new TestObjectStreamMarshaller());
       store.start();
       return store;
