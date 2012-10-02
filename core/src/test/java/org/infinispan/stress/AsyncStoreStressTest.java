@@ -243,7 +243,10 @@ public class AsyncStoreStressTest {
          @Override
          public boolean call(String key, long run) {
             try {
-               return store.load(key) != null;
+               InternalCacheEntry ice = store.load(key);
+               if (trace)
+                  log.tracef("Loaded key=%s, value=%s", key, ice != null ? ice.getValue() : "null");
+               return ice != null;
             } catch (CacheLoaderException e) {
                e.printStackTrace();
                return false;
@@ -265,8 +268,8 @@ public class AsyncStoreStressTest {
                public Boolean call() throws Exception {
                   store.store(entry);
                   expectedState.put(key, entry);
-                  if (debug)
-                     log.debugf("Expected state updated with key=%s, value=%s", key, value);
+                  if (trace)
+                     log.tracef("Expected state updated with key=%s, value=%s", key, value);
                   return true;
                }
             });
@@ -287,7 +290,7 @@ public class AsyncStoreStressTest {
                   if (removed) {
                      expectedState.remove(key);
                      if (trace)
-                        log.debugf("Expected state removed key=%s", key);
+                        log.tracef("Expected state removed key=%s", key);
                   }
                   return true;
                }

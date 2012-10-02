@@ -39,6 +39,7 @@ import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @CacheLoaderMetadata(configurationClass = DummyInMemoryCacheStore.Cfg.class)
 public class DummyInMemoryCacheStore extends AbstractCacheStore {
@@ -46,12 +47,12 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
    private static final boolean trace = log.isTraceEnabled();
    private static final boolean debug = log.isDebugEnabled();
    static final ConcurrentMap<String, Map<Object, InternalCacheEntry>> stores = new ConcurrentHashMap<String, Map<Object, InternalCacheEntry>>();
-   static final ConcurrentMap<String, ConcurrentMap<String, Integer>> storeStats =
-         new ConcurrentHashMap<String, ConcurrentMap<String, Integer>>();
+   static final ConcurrentMap<String, ConcurrentMap<String, AtomicInteger>> storeStats =
+         new ConcurrentHashMap<String, ConcurrentMap<String, AtomicInteger>>();
    String storeName;
    Map<Object, InternalCacheEntry> store;
    // When a store is 'shared', multiple nodes could be trying to update it concurrently.
-   ConcurrentMap<String, Integer> stats;
+   ConcurrentMap<String, AtomicInteger> stats;
    Cfg config;
 
    public DummyInMemoryCacheStore(String storeName) {
@@ -62,19 +63,7 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
    }
 
    private void record(String method) {
-      boolean replaced;
-      long end = System.currentTimeMillis() + 5000;
-      do {
-         int i = stats.get(method);
-         replaced = stats.replace(method, i, i + 1);
-         if (!replaced) {
-            try {
-               Thread.sleep(200);
-            } catch (InterruptedException e) {
-               Thread.currentThread().interrupt();
-            }
-         }
-      } while (!replaced && end < System.currentTimeMillis());
+      stats.get(method).incrementAndGet();
    }
 
    @Override
@@ -240,7 +229,7 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
             log.debugf("Creating new in-memory cache store %s", storeName);
          }
 
-         ConcurrentMap<String, Integer> existingStats = storeStats.putIfAbsent(storeName, stats);
+         ConcurrentMap<String, AtomicInteger> existingStats = storeStats.putIfAbsent(storeName, stats);
          if (existing != null) {
             stats = existingStats;
          }
@@ -250,10 +239,10 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
       record("start");
    }
 
-   private ConcurrentMap<String, Integer> newStatsMap() {
-      ConcurrentMap<String, Integer> m = new ConcurrentHashMap<String, Integer>();
+   private ConcurrentMap<String, AtomicInteger> newStatsMap() {
+      ConcurrentMap<String, AtomicInteger> m = new ConcurrentHashMap<String, AtomicInteger>();
       for (Method method: CacheStore.class.getMethods()) {
-         m.put(method.getName(), 0);
+         m.put(method.getName(), new AtomicInteger(0));
       }
       return m;
    }
@@ -276,11 +265,13 @@ public class DummyInMemoryCacheStore extends AbstractCacheStore {
    }
 
    public Map<String, Integer> stats() {
-      return Collections.unmodifiableMap(stats);
+      Map<String, Integer> copy = new HashMap<String, Integer>(stats.size());
+      for (String k: stats.keySet()) copy.put(k, stats.get(k).get());
+      return copy;
    }
 
    public void clearStats() {
-      for (String k: stats.keySet()) stats.put(k, 0);
+      for (String k: stats.keySet()) stats.get(k).set(0);
    }
 
    public void blockUntilCacheStoreContains(Object key, Object expectedValue, long timeout) {
