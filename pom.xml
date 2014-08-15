@@ -5,7 +5,7 @@
    <parent>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-parent</artifactId>
-      <version>6.0.3-SNAPSHOT</version>
+      <version>6.0.4.DCON</version>
       <relativePath>parent/pom.xml</relativePath>
    </parent>
 
@@ -17,10 +17,13 @@
 
    <modules>
       <module>bom</module>
+<!--
       <module>checkstyle</module>
+-->
       <module>parent</module>
       <module>commons</module>
       <module>core</module>
+<!--
       <module>extended-statistics</module>
       <module>tools</module>
       <module>query</module>
@@ -70,6 +73,7 @@
       <module>compatibility52x/custom52x-store</module>
       <module>compatibility52x/cli-migrator52x</module>
       <module>server/integration</module>
+-->
    </modules>
 
    <profiles>
