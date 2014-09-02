@@ -3,7 +3,7 @@
    <modelVersion>4.0.0</modelVersion>
    <groupId>org.infinispan</groupId>
    <artifactId>infinispan-parent</artifactId>
-      <version>6.0.4.DCON</version>
+      <version>6.0.5.DCON</version>
    <packaging>pom</packaging>
    <name>Infinispan Common Parent</name>
    <description>Infinispan common parent POM module</description>
@@ -1146,7 +1146,7 @@
                   <configuration>
                      <rules>
                         <requireJavaVersion>
-                           <version>[1.7,)</version>
+                           <version>[1.6,)</version>
                         </requireJavaVersion>
                         <requireMavenVersion>
                            <version>[3.0.3,)</version>
