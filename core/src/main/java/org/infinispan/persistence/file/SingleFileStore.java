@@ -648,6 +648,8 @@ public class SingleFileStore implements AdvancedLoadWriteStore {
 
       @Override
       public int compareTo(FileEntry fe) {
+         if (this == fe)
+            return 0;
          int diff = size - fe.size;
          return (diff != 0) ? diff : offset > fe.offset ? 1 : -1;
       }
