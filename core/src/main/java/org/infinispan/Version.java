@@ -15,7 +15,7 @@ public class Version {
 
    private static final String MAJOR = "6";
    private static final String MINOR = "0";
-   private static final String MICRO = "5";
+   private static final String MICRO = "6";
    private static final String MODIFIER = "DCON";
    private static final boolean SNAPSHOT = true;
 
