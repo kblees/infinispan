@@ -59,6 +59,10 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
    private TestObjectStreamMarshaller marshaller;
 
    private void createStore() throws PersistenceException {
+      createStore(false);
+   }
+
+   private void createStore(boolean slow) throws PersistenceException {
       DummyInMemoryStoreConfigurationBuilder dummyCfg = TestCacheManagerFactory.getDefaultCacheConfiguration(false)
             .persistence()
                .addStore(DummyInMemoryStoreConfigurationBuilder.class)
@@ -67,6 +71,7 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
          .async()
             .enable()
             .threadPoolSize(10);
+      dummyCfg.slow(slow);
       DummyInMemoryStore underlying = new DummyInMemoryStore();
       writer = new AdvancedAsyncCacheWriter(underlying);
       DummyInitializationContext ctx = new DummyInitializationContext(dummyCfg.create(), getCache(), marshaller(), new ByteBufferFactoryImpl(), new MarshalledEntryFactoryImpl(marshaller()));
@@ -193,6 +198,39 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
          writer.stop();
          writer = null;
       }
+   }
+
+   @Test(timeOut=30000)
+   public void testConcurrentWriteAndStop() throws Exception {
+      TestResourceTracker.backgroundTestStarted(this);
+      createStore(true);
+
+      final int lastValue[] = { 0 };
+      // start a thread that keeps writing new values for the same key, until the store is stopped
+      final String key = "testConcurrentWriteAndStop";
+      Thread t = new Thread() {
+         @Override
+         public void run() {
+            try {
+               for (;;) {
+                  int v = lastValue[0] + 1;
+                  writer.write(new MarshalledEntryImpl(key, key + v, null, marshaller()));
+                  lastValue[0] = v;
+               }
+            } catch (CacheException expected) {
+            }
+         }
+      };
+      t.start();
+
+      // wait until thread has written some values
+      Thread.sleep(500);
+      writer.stop();
+
+      // check that the last value successfully written to the AsyncStore has also been written to the underlying store
+      MarshalledEntry me = loader.undelegate().load(key);
+      assertNotNull(me);
+      assertEquals(me.getValue(), key + lastValue[0]);
    }
 
    private void doTestPut(int number, String key, String value) throws Exception {
