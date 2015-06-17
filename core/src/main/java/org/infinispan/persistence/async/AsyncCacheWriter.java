@@ -94,7 +94,7 @@ public class AsyncCacheWriter extends DelegatingCacheWriter {
       stateLock = new BufferLock(asyncConfiguration.modificationQueueSize());
 
       int poolSize = asyncConfiguration.threadPoolSize();
-      executor = new ThreadPoolExecutor(0, poolSize, 120L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),
+      executor = new ThreadPoolExecutor(poolSize, poolSize, 120L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),
                                         new ThreadFactory() {
                                            @Override
                                            public Thread newThread(Runnable r) {
@@ -103,6 +103,7 @@ public class AsyncCacheWriter extends DelegatingCacheWriter {
                                               return t;
                                            }
                                         });
+      ((ThreadPoolExecutor) executor).allowCoreThreadTimeOut(true);
       coordinator = new Thread(new AsyncStoreCoordinator(), "AsyncStoreCoordinator-" + cacheName);
       coordinator.setDaemon(true);
       coordinator.start();
@@ -295,7 +296,7 @@ public class AsyncCacheWriter extends DelegatingCacheWriter {
          } finally {
             // decrement active worker threads and disconnect myState if this was the last one
             myState.workerThreads.countDown();
-            if (myState.workerThreads.getCount() == 0)
+            if (myState.workerThreads.getCount() == 0 && myState.next == null)
                for (State s = state.get(); s != null; s = s.next)
                   if (s.next == myState)
                      s.next = null;
