@@ -102,26 +102,36 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
       TestResourceTracker.backgroundTestStarted(this);
       createStore();
 
-      final int number = 1000;
-      String key = "testPutRemove-k-";
-      String value = "testPutRemove-v-";
-      doTestPut(number, key, value);
-      doTestRemove(number, key);
+      final int number = 100;
+      final int loops = 10000;
+      for (int i = 0; i < loops; i++) {
+         String key = "testPutRemove-k-";
+         String value = "testPutRemove-v-";
+         doTestPut(number, key, value);
+         doTestRemove(number, key);
+      }
+      writer.stop();
+      loader.stop();
    }
 
-   @Test(timeOut=30000, groups = "unstable")
+   @Test(timeOut=30000)
    public void testPutClearPut() throws Exception {
       TestResourceTracker.backgroundTestStarted(this);
       createStore();
 
-      final int number = 1000;
-      String key = "testPutClearPut-k-";
-      String value = "testPutClearPut-v-";
-      doTestPut(number, key, value);
-      doTestClear(number, key);
-      value = "testPutClearPut-v[2]-";
-      doTestPut(number, key, value);
-      doTestRemove(number, key);
+      final int number = 100;
+      final int loops = 10000;
+      for (int i = 0; i < loops; i++) {
+         String key = "testPutClearPut-k-";
+         String value = "testPutClearPut-v-";
+         doTestPut(number, key, value);
+         doTestClear(number, key);
+         value = "testPutClearPut-v[2]-";
+         doTestPut(number, key, value);
+         doTestRemove(number, key);
+      }
+      writer.stop();
+      loader.stop();
    }
 
    @Test(timeOut=30000)
@@ -129,11 +139,14 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
       TestResourceTracker.backgroundTestStarted(this);
       createStore();
 
-      final int number = 1000;
-      String key = "testMultiplePutsOnSameKey-k";
-      String value = "testMultiplePutsOnSameKey-v-";
-      doTestSameKeyPut(number, key, value);
-      doTestSameKeyRemove(key);
+      final int number = 100;
+      final int loops = 10000;
+      for (int i = 0; i < loops; i++) {
+         String key = "testMultiplePutsOnSameKey-k";
+         String value = "testMultiplePutsOnSameKey-v-";
+         doTestSameKeyPut(number, key, value);
+         doTestSameKeyRemove(key);
+      }
    }
 
    @Test(timeOut=30000)
@@ -290,23 +303,7 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
 
    private void doTestRemove(final int number, final String key) throws Exception {
       for (int i = 0; i < number; i++) writer.delete(key + i);
-
-      eventually( new Condition() {
-         @Override
-         public boolean isSatisfied() throws Exception {
-            boolean allRemoved = true;
-
-            for (int i = 0; i < number; i++) {
-               String loadKey = key + i;
-               if(loader.load(loadKey) != null) {
-                  allRemoved = false;
-                  break;
-               }
-            }
-
-            return allRemoved;
-         }
-      });
+      for (int i = 0; i < number; i++) assertNull(loader.load(key + i));
    }
 
    private void doTestSameKeyRemove(String key) throws Exception {
@@ -319,7 +316,6 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
 
       writer.clear();
 
-      Thread.sleep(1000);
       log.trace("after clear");
 
       for (int i = 0; i < number; i++) {
