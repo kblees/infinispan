@@ -16,6 +16,7 @@ import org.infinispan.persistence.DummyInitializationContext;
 import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.persistence.async.AdvancedAsyncCacheLoader;
 import org.infinispan.persistence.async.AdvancedAsyncCacheWriter;
+import org.infinispan.persistence.async.State;
 import org.infinispan.persistence.dummy.DummyInMemoryStore;
 import org.infinispan.persistence.dummy.DummyInMemoryStoreConfiguration;
 import org.infinispan.persistence.dummy.DummyInMemoryStoreConfigurationBuilder;
@@ -42,6 +43,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -62,6 +65,30 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
       createStore(false);
    }
 
+   /**
+    * Creates State objects with slightly throttled get() performance, to check that load() is
+    * really in sync with changes. This gives the coordinator thread a better chance to execute
+    * while AsyncCacheLoader.load() is iterating states.
+    */
+   static class SlowAdvancedAsyncCacheWriter extends AdvancedAsyncCacheWriter {
+      public SlowAdvancedAsyncCacheWriter(CacheWriter delegate) {
+         super(delegate);
+      }
+      @Override
+      protected State newState(boolean clear, State next) {
+         ConcurrentMap<Object, Modification> map = new ConcurrentHashMap() {
+            @Override
+            public Object get(Object key) {
+               Object result = super.get(key);
+               for (int i = 0; i < 10; i++)
+                  Thread.yield();
+               return result;
+            }
+         };
+         return new State(clear, map, next);
+      }
+   };
+
    private void createStore(boolean slow) throws PersistenceException {
       DummyInMemoryStoreConfigurationBuilder dummyCfg = TestCacheManagerFactory.getDefaultCacheConfiguration(false)
             .persistence()
@@ -73,7 +100,7 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
             .threadPoolSize(10);
       dummyCfg.slow(slow);
       DummyInMemoryStore underlying = new DummyInMemoryStore();
-      writer = new AdvancedAsyncCacheWriter(underlying);
+      writer = new SlowAdvancedAsyncCacheWriter(underlying);
       DummyInitializationContext ctx = new DummyInitializationContext(dummyCfg.create(), getCache(), marshaller(), new ByteBufferFactoryImpl(), new MarshalledEntryFactoryImpl(marshaller()));
       writer.init(ctx);
       writer.start();
@@ -109,6 +136,28 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
    }
 
    @Test(timeOut=30000)
+   public void testRepeatedPutRemove() throws Exception {
+      TestCacheManagerFactory.backgroundTestStarted(this);
+      createStore();
+
+      final int number = 10;
+      final int loops = 5000;
+      String key = "testRepeatedPutRemove-k-";
+      String value = "testRepeatedPutRemove-v-";
+
+      int failures = 0;
+      for (int i = 0; i < loops; i++) {
+         try {
+            doTestPut(number, key, value);
+            doTestRemove(number, key);
+         } catch (Error e) {
+            failures++;
+         }
+      }
+      assertEquals(0, failures);
+   }
+
+   @Test(timeOut=30000)
    public void testPutClearPut() throws Exception {
       TestCacheManagerFactory.backgroundTestStarted(this);
       createStore();
@@ -121,6 +170,30 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
       value = "testPutClearPut-v[2]-";
       doTestPut(number, key, value);
       doTestRemove(number, key);
+   }
+
+   @Test(timeOut=30000)
+   public void testRepeatedPutClearPut() throws Exception {
+      TestCacheManagerFactory.backgroundTestStarted(this);
+      createStore();
+
+      final int number = 10;
+      final int loops = 5000;
+      String key = "testRepeatedPutClearPut-k-";
+      String value = "testRepeatedPutClearPut-v-";
+      String value2 = "testRepeatedPutClearPut-v[2]-";
+
+      int failures = 0;
+      for (int i = 0; i < loops; i++) {
+         try {
+            doTestPut(number, key, value);
+            doTestClear(number, key);
+            doTestPut(number, key, value2);
+         } catch (Error e) {
+            failures++;
+         }
+      }
+      assertEquals(0, failures);
    }
 
    @Test(timeOut=30000)
@@ -202,7 +275,7 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
 
    @Test(timeOut=30000)
    public void testConcurrentWriteAndStop() throws Exception {
-      TestResourceTracker.backgroundTestStarted(this);
+      TestCacheManagerFactory.backgroundTestStarted(this);
       createStore(true);
 
       final int lastValue[] = { 0 };
@@ -235,7 +308,7 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
 
    @Test(timeOut=30000)
    public void testConcurrentClearAndStop() throws Exception {
-      TestResourceTracker.backgroundTestStarted(this);
+      TestCacheManagerFactory.backgroundTestStarted(this);
       createStore(true);
 
       // start a thread that keeps clearing the store until its stopped
@@ -261,15 +334,10 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
    }
 
    private void doTestPut(int number, String key, String value) throws Exception {
-
-      log.tracef("before write");
-
       for (int i = 0; i < number; i++) {
          InternalCacheEntry cacheEntry = TestInternalCacheEntryFactory.create(key + i, value + i);
          writer.write(marshalledEntry(cacheEntry, marshaller()));
       }
-
-      log.tracef("after write");
 
       for (int i = 0; i < number; i++) {
          MarshalledEntry me = loader.load(key + i);
@@ -287,23 +355,7 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
 
    private void doTestRemove(final int number, final String key) throws Exception {
       for (int i = 0; i < number; i++) writer.delete(key + i);
-
-      eventually( new Condition() {
-         @Override
-         public boolean isSatisfied() throws Exception {
-            boolean allRemoved = true;
-
-            for (int i = 0; i < number; i++) {
-               String loadKey = key + i;
-               if(loader.load(loadKey) != null) {
-                  allRemoved = false;
-                  break;
-               }
-            }
-
-            return allRemoved;
-         }
-      });
+      for (int i = 0; i < number; i++) assertNull(loader.load(key + i));
    }
 
    private void doTestSameKeyRemove(String key) throws Exception {
@@ -312,12 +364,7 @@ public class AsyncStoreTest extends AbstractInfinispanTest {
    }
 
    private void doTestClear(int number, String key) throws Exception {
-      log.trace("before clear");
-
       writer.clear();
-
-      Thread.sleep(1000);
-      log.trace("after clear");
 
       for (int i = 0; i < number; i++) {
          assert loader.load(key + i) == null;
